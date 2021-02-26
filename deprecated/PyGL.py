@@ -2,15 +2,15 @@ import numpy as np
 import math
 import pygame
 import os
-import cupy as cp
+import numba as nb
 from numpy.linalg import inv
+import cupy as cp
 
 class Scene:
     def __init__(self, screen, init_camera=True):
         self.screen = screen #The pygame screen to manipulate
         self.WIDTH = screen.get_width()
         self.HEIGHT = screen.get_height()
-
         self.objects = []
 
         self.camera = self.create_camera() if init_camera else None
@@ -22,7 +22,7 @@ class Scene:
         camera = Camera()
         camera.vUp.point[1] = 1
         camera.fFov = 90
-        camera.fAspectRatio = self.WIDTH/self.HEIGHT
+        camera.fAspectRatio = 1
         camera.fFovRad = 1 / math.tan(camera.fFov * 0.5 / 180 * 3.14159)
         return camera    
 
@@ -30,7 +30,7 @@ class Scene:
         light = Light()
         light.direction.point[2] = -1
 
-        normalise_vector(light.direction)
+        normalise_vector(light.direction.point)
 
         self.lights.append(light)
 
@@ -41,9 +41,11 @@ class Scene:
             line1 = tri.p[1] - tri.p[0]
             line2 = tri.p[2] - tri.p[0]
 
-            normal = vector_cross_product(line1, line2)
+            normal = vector_cross_product(line1.point, line2.point)
 
-            normalise_vector(normal)
+            normalise_vector(normal.point)
+
+            normal.point = np.array(normal.point)
 
             mesh.mesh[i].normal = normal
 
@@ -244,7 +246,6 @@ class Basic_Renderer:
         pygame.display.flip()
 
         
-
     def render(self, objects, camera, lights):
         self.to_draw = []
         #Only update camera transforms if the camera state has changed
@@ -268,6 +269,17 @@ class Basic_Renderer:
         
             self.last_camera_pos = camera.pos 
             self.last_camera_lookDirection = camera.look_direction
+        
+        if self.last_camera_fov != camera.fFov:
+            
+            self.projection_matrix.m[0][0] = camera.fAspectRatio * camera.fFovRad
+            self.projection_matrix.m[1][1] = camera.fFovRad
+            self.projection_matrix.m[2][2] = camera.fFar / (camera.fFar - camera.fNear)
+            self.projection_matrix.m[3][2] = (-camera.fFar * camera.fNear) / (camera.fFar - camera.fNear)
+            self.projection_matrix.m[2][3] = 1
+            self.projection_matrix.m[3][3] = 0
+
+            self.last_camera_fov = camera.fFov
 
         #threads = []
         for j in objects:
@@ -287,7 +299,6 @@ class Basic_Renderer:
                 tri.p[1] = self.camera_matrix * tri.p[1]
                 tri.p[2] = self.camera_matrix * tri.p[2]
 
-                
                 x_rotation = matrix_rotationX(j.rot[0])
                 y_rotation = matrix_rotationY(j.rot[1])
                 z_rotation = matrix_rotationZ(j.rot[2])
@@ -297,19 +308,21 @@ class Basic_Renderer:
                 tri.p[2] = x_rotation * tri.p[2]
                 normal = x_rotation * normal
                 
-
                 tri.p[0] = y_rotation * tri.p[0]
                 tri.p[1] = y_rotation * tri.p[1]
                 tri.p[2] = y_rotation * tri.p[2]
                 normal = y_rotation * normal
 
-
                 tri.p[0] = z_rotation * tri.p[0]
                 tri.p[1] = z_rotation * tri.p[1]
                 tri.p[2] = z_rotation * tri.p[2]
                 normal = z_rotation * normal
-
+                
+                
                 if normal.point[2] < 0:
+                    tri.p[0] = self.projection_matrix * tri.p[0]
+                    tri.p[1] = self.projection_matrix * tri.p[1]
+                    tri.p[2] = self.projection_matrix * tri.p[2]
                     scale_triangle(tri, j.pos.point[2] + j.scale)
                     translate_triangle(tri, j.pos.point[0], j.pos.point[1])
 
@@ -379,37 +392,39 @@ def transplant_vector(in_tri):
 
     return new_tri
 
+@nb.njit
 def vector_dot_product(VectorOne, VectorTwo):
-    dp = VectorOne.point[0] * VectorTwo.point[0] + VectorOne.point[1] * VectorTwo.point[1] + VectorOne.point[2] * VectorTwo.point[2]
+    dp = VectorOne[0] * VectorTwo[0] + VectorOne[1] * VectorTwo[1] + VectorOne[2] * VectorTwo[2]
     return dp
 
+@nb.njit
 def normalise_vector(vector):
-    l = math.sqrt(vector.point[0]*vector.point[0] + vector.point[1]*vector.point[1] + vector.point[2]*vector.point[2])
-    vector.point[0] = vector.point[0] / l if l != 0 else 0 
-    vector.point[1] = vector.point[1] / l if l != 0 else 0
-    vector.point[2] = vector.point[2] / l if l != 0 else 0
+    l = math.sqrt(vector[0]*vector[0] + vector[1]*vector[1] + vector[2]*vector[2])
+    vector[0] = vector[0] / l if l != 0 else 0 
+    vector[1] = vector[1] / l if l != 0 else 0
+    vector[2] = vector[2] / l if l != 0 else 0
 
 def vector_cross_product(vector_one, vector_two):
     out = Vector3()
-    out.point[0] = vector_one.point[1] * vector_two.point[2] - vector_one.point[2] * vector_two.point[1]
-    out.point[1] = vector_one.point[2] * vector_two.point[0] - vector_one.point[0] * vector_two.point[2]
-    out.point[2] = vector_one.point[0] * vector_two.point[1] - vector_one.point[1] * vector_two.point[0]
+    out.point[0] = vector_one[1] * vector_two[2] - vector_one[2] * vector_two[1]
+    out.point[1] = vector_one[2] * vector_two[0] - vector_one[0] * vector_two[2]
+    out.point[2] = vector_one[0] * vector_two[1] - vector_one[1] * vector_two[0]
     return out
 
 def matrix_pointAt(pos, target, up):
      # Callculate new forward direction
     newForward = Vector3()
     newForward = target - pos
-    normalise_vector(newForward)
+    normalise_vector(newForward.point)
 
     #Calculate new up relation
-    a = multiply_vector(newForward, vector_dot_product(up, newForward))
+    a = multiply_vector(newForward, vector_dot_product(up.point, newForward.point))
 
     newUp = up - a
-    normalise_vector(newUp)
+    normalise_vector(newUp.point)
 
     #New Right Direction (cross Product)
-    newRight = vector_cross_product(newUp, newForward)
+    newRight = vector_cross_product(newUp.point, newForward.point)
 
     matrix = Matrix4x4()
     matrix.m[0][0] = newRight.point[0]
@@ -562,7 +577,7 @@ class Matrix4x4():
 
     def __mul__(self, i):
         v = Vector3()
-        v.point = i.point.dot(self.m)
+        v.point = np.dot(self.m, i.point)
         return v
         
         """

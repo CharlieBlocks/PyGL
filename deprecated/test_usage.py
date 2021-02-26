@@ -21,7 +21,7 @@ FPS = 120
 
 fps_history = []
 
-inpath = Path.cwd() / "cube.obj"
+inpath = Path.cwd() / "objects" / "IcoSphere.obj"
 
 vertices = np.array([[0, 0, 0], [1, 0, 1], [1, 0, 0]])
 #trig = scene.add_triangle_from_array(vertices)
@@ -43,9 +43,9 @@ while running:
         if event.type == pygame.QUIT:
             running = False
 
-    trig.rot[0] += 20 * delta_time
-    trig.rot[2] += 25 * delta_time
-    trig.rot[1] += 15 * delta_time
+    #trig.rot[0] += 20 * delta_time
+    #trig.rot[2] += 25 * delta_time
+    #trig.rot[1] += 15 * delta_time
     
 
     scene.update(renderer)
@@ -57,6 +57,7 @@ while running:
 
     print("FPS:",fps, end="\r")
     clock.tick(FPS)
+print(fps)
 
 
 def update():
