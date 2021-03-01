@@ -1,6 +1,7 @@
 import copy
 from ..maths import *
 import pygame
+import time
 
 class Renderer:
     def __init__(self, screen): #Takes a pygame screen object
@@ -19,16 +20,18 @@ class Renderer:
         """
         return "#%02x%02x%02x" % rgb   
 
-    def draw(self):
+    def draw(self, tris, rgbs):
         self.screen.fill("black")
         #pygame.display.flip()
+        """
         for tri in self.to_draw:
             RGB = (int(tri.r), int(tri.g), int(tri.b))
 
             colour = self._from_rgb(RGB)
-            
-            #print((tri.p[0][0], tri.p[0][1]), (tri.p[1][0], tri.p[1][1]), (tri.p[2][0], tri.p[2][1]))
-            pygame.draw.polygon(self.screen, colour, ((tri.p[0][0], tri.p[0][1]), (tri.p[1][0], tri.p[1][1]), (tri.p[2][0], tri.p[2][1])))
+        """
+        for num, tri in enumerate(tris):
+            rgb = rgbs[num]
+            pygame.draw.polygon(self.screen, self._from_rgb(rgb), ((tri[0][0], tri[0][1]), (tri[1][0], tri[1][1]), (tri[2][0], tri[2][1])))
         pygame.display.flip()
 
     def render(self, scene, camera, lights): 
@@ -63,48 +66,106 @@ class Renderer:
         
         for j in scene.objects:   #Get's each mesh object from the list passed to it
 
-            create_rotation_matrix(j.rot_mat, j.rotation[0], j.rotation[1], j.rotation[2])
+            j.rot_mat = create_rotation_matrix(j.rotation[0], j.rotation[1], j.rotation[2])
 
-            for i in j.m:   # Gets each triangle from the mesh object
-                tri = copy.deepcopy(i)
-                
-                tri.p[0] = multiply_matrix(camera.camera_matrix, tri.p[0])
-                tri.p[1] = multiply_matrix(camera.camera_matrix, tri.p[1])
-                tri.p[2] = multiply_matrix(camera.camera_matrix, tri.p[2])
-
-                tri.p[0] = multiply_matrix(j.rot_mat, tri.p[0])
-                tri.p[1] = multiply_matrix(j.rot_mat, tri.p[1])
-                tri.p[2] = multiply_matrix(j.rot_mat, tri.p[2])
-                tri.normal = multiply_matrix(j.rot_mat, tri.normal)
-
-                if tri.normal[2] < 0:
-                    scale_vector(tri.p[0], j.scale) #Scale triangle
-                    scale_vector(tri.p[1], j.scale)
-                    scale_vector(tri.p[2], j.scale)
-
-                    translate_vector(tri.p[0], j.pos[0], j.pos[1], j.pos[2]) #Translate the triangle in 3D space
-                    translate_vector(tri.p[1], j.pos[0], j.pos[1], j.pos[2])
-                    translate_vector(tri.p[2], j.pos[0], j.pos[1], j.pos[2])
-
-                    tri.p[0] = multiply_matrix(self.projection_matrix, tri.p[0]) 
-                    tri.p[1] = multiply_matrix(self.projection_matrix, tri.p[1])
-                    tri.p[2] = multiply_matrix(self.projection_matrix, tri.p[2])          
+            cam_mat = [] #Prepeares the triangles and camera matrix for vectorized multiplication
+            normals = []
+            tris = []
+            rot_mat = []
+            for x in range(len(j.m)):
+                tris.append(j.m[x].p)
+                normals.append(j.m[x].normal)
+                cam_mat.append(camera.camera_matrix)
+                cam_mat.append(camera.camera_matrix)
+                cam_mat.append(camera.camera_matrix)
+                rot_mat.append(j.rot_mat)
+                rot_mat.append(j.rot_mat)
+                rot_mat.append(j.rot_mat)
 
 
-                    for light in lights:
-                        if not light.custom_script:
-                            dp = vector_dot_product(tri.normal, light.normal)
+            tris = np.array(tris)
+            cam_mat = np.array(cam_mat)
+            rot_mat = np.array(rot_mat)
+            normals = np.array(normals)
 
-                            tri.r = abs(min(255, self.colour[0]*dp))
-                            tri.g = abs(min(255, self.colour[1]*dp))
-                            tri.b = abs(min(255, self.colour[2]*dp))
+            tris = tris.reshape(-1,4)
+            tris = np.pad(tris, [(0,0), (0,12)]) #Pad the array to work with the vectorized multiplication function
+            cam_mat = cam_mat.reshape(-1,16)
+            rot_mat = rot_mat.reshape(-1, 16)
+            normals = normals.reshape(-1,4)
+            normals = np.pad(normals, [(0,0), (0,12)])
 
-                            tri.r = max(0, min(255, tri.r))
-                            tri.g = max(0, min(255, tri.g))
-                            tri.b = max(0, min(255, tri.b))
-                    self.to_draw.append(tri)
+            tris = multiply_matrix_vectorized(cam_mat, tris) #Multiplication for camera_matrix
+            tris = multiply_matrix_vectorized(rot_mat, tris) # multiplication for rotation_matrix
+            rot_mat = rot_mat[:normals.shape[0]]
+            normals = multiply_matrix_vectorized(rot_mat, normals)
+            tris = tris[0:tris.shape[0], :4]
+            tris = tris.reshape(-1,3,4) #Rehsape and remove excess padding
+            normals = normals[0:normals.shape[0], :4]
+            normals = normals.reshape(-1,4)
 
-        self.draw()
+            new_tris = tris 
+            new_normals = normals
+            num = normals.shape[0]
+            while num >0:
+                tri = tris[num-1]
+                normal = normals[num-1]
+                if normal[2] >= 0:
+                    new_tris = np.delete(new_tris, num-1, 0)
+                    new_normals = np.delete(new_normals, num-1, 0)
+                num -= 1
+
+            tris = new_tris 
+            normals = new_normals
+            tris = tris.reshape(-1, 4)
+            
+            proj_mat = []
+            for index in range(tris.shape[0]):
+                proj_mat.append(self.projection_matrix)
+
+            scale = np.full(tris.shape[0], j.scale, dtype=np.float64)
+            x = np.full(tris.shape, j.pos[0], dtype=np.float64)
+            y = np.full(tris.shape, j.pos[1], dtype=np.float64)
+            z = np.full(tris.shape, j.pos[2], dtype=np.float64)
+
+            proj_mat = np.array(proj_mat)
+            proj_mat = proj_mat.reshape(-1, 16)
+            tris = np.ascontiguousarray(tris, dtype=np.float64)
+
+            tris = scale_vector_vectorized(tris, scale) #Scale triangle
+
+            tris = translate_vector_vectorized(tris,x,y,z)
+
+            tris = np.pad(tris, [(0,0), (0,12)])
+            tris = multiply_matrix_vectorized(proj_mat, tris)   
+            tris = tris[0:tris.shape[0], :4]  
+            tris = tris.reshape(-1,3,4)   
+
+
+            for light in lights:
+                if not light.custom_script:
+                    light_normal = []
+                    for index in range(normals.shape[0]):
+                        light_normal.append(light.normal)
+                    
+                    light_normal = np.array(light_normal).reshape(-1, 4)
+                    normals = np.ascontiguousarray(normals)
+
+                    dp = vector_dot_product_vectorized(normals, light_normal)
+                    
+                    rgbs = []
+                    for num, tri in enumerate(tris):
+                        r = abs(min(255, self.colour[0]*dp[num][0]))
+                        g = abs(min(255, self.colour[1]*dp[num][0]))
+                        b = abs(min(255, self.colour[2]*dp[num][0]))
+
+                        r = max(0, min(255, r))
+                        g = max(0, min(255, g))
+                        b = max(0, min(255, b))
+                        rgb = (int(r),int(g),int(b))
+                        rgbs.append(rgb)
+
+        self.draw(tris, rgbs)
 
 
 

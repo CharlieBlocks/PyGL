@@ -56,15 +56,16 @@ class Scene:
                         ti = data[1]
                         ni = data[2]
 
-                        indices = (int(vi) -1, int(ti) - 1, int(ni) - 1)
-                        newTri = Triangle()
-                        newTri.p[0] = vertex_pool[indices[0]]
-                        newTri.p[1] = vertex_pool[indices[1]]
-                        newTri.p[2] = vertex_pool[indices[2]]
+                    indices = (int(vi) -1, int(ti) - 1, int(ni) - 1)
+                    newTri = Triangle()
+                    newTri.p[0] = vertex_pool[indices[0]]
+                    newTri.p[1] = vertex_pool[indices[1]]
+                    newTri.p[2] = vertex_pool[indices[2]]
 
-                        newObject.m.append(newTri)
+                    newObject.m.append(newTri)
 
         self.calculate_normals(newObject) #Calculate the normals
+        newObject.m = np.array(newObject.m)
 
         self.objects.append(newObject) #Add object
         return newObject

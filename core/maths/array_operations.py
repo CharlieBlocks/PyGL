@@ -3,7 +3,6 @@ import cupy as cp
 import numpy as np
 from .vector_operations import *
 
-@nb.njit
 def normalise_array(arr):
     l = np.sqrt(arr[0]*arr[0] + arr[1]*arr[1] + arr[2]*arr[2])
     if l != 0:
@@ -13,12 +12,13 @@ def normalise_array(arr):
     else:
         return 
 
-@nb.njit
+
 def cross_product(arr_one, arr_two): #Must be a 1D array of 3
     out = np.zeros(4)
     out[0] = arr_one[1] * arr_two[2] - arr_one[2] * arr_two[1]
     out[1] = arr_one[2] * arr_two[0] - arr_one[0] * arr_two[2]
     out[2] = arr_one[0] * arr_two[1] - arr_one[1] * arr_two[0]
+    out[3] = 1
     return out
 
 @nb.njit
@@ -45,15 +45,9 @@ def multiply_matrix(mat, vec):
     return np.dot(mat, vec)
 
 @nb.njit
-def create_rotation_matrix(mat, x, y, z):
+def create_rotation_matrix(x, y, z):
 
-    for i in range(len(mat)):   #Clear out the previous matrix
-        for j in range(i+1):
-            mat[i][j] = 0
-
-    mat[1][2] = 0
-
-
+    mat_x = np.zeros((4,4))
     mat_y = np.zeros((4,4))
     mat_z = np.zeros((4,4))
 
@@ -66,12 +60,12 @@ def create_rotation_matrix(mat, x, y, z):
     sin_z = np.sin(z*0.01745)
     cos_z = np.cos(z*0.01745)
 
-    mat[0][0] = 1   #Set the X matrix.
-    mat[1][1] += cos_x
-    mat[1][2] += sin_x
-    mat[2][1] += -sin_x
-    mat[2][2] += cos_x
-    mat[3][3] = 1 
+    mat_x[0][0] = 1   #Set the X matrix.
+    mat_x[1][1] += cos_x
+    mat_x[1][2] += sin_x
+    mat_x[2][1] += -sin_x
+    mat_x[2][2] += cos_x
+    mat_x[3][3] = 1 
 
     mat_y[0][0] = cos_y
     mat_y[0][2] = sin_y
@@ -87,8 +81,10 @@ def create_rotation_matrix(mat, x, y, z):
     mat_z[2][2] = 1
     mat_z[3][3] = 1
 
-    mat = np.dot(mat, mat_y)
+    mat = np.dot(mat_x, mat_y)
     mat = np.dot(mat, mat_z)
+
+    return mat
 
 
 def matrix_pointAt(pos, target, up):
@@ -123,5 +119,4 @@ def matrix_pointAt(pos, target, up):
     matrix[3][3] = 1
 
     return matrix
-
 
