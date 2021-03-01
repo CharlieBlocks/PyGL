@@ -1,5 +1,5 @@
 # PyGL
-A render engine similar to OpenGL that runs natively on python. Mainly targeted towards simply 3D games and visualisation of information.
+A render engine similar to OpenGL that runs natively on python. Mainly targeted towards simple 3D games and visualisation of information.
 
 To do:
     Add in texturing
@@ -13,8 +13,7 @@ Current Setup:
 The module does not currently have a pip install so it is only currently usefull for demostrations.
 - Download the current version of PyGL
 - Place PyGL into you working directory
-- Download the test file from my other repo
-- Place the test file in the same diretory that PyGL is placed.
+- Drag the Test file out of the PyGL package directory and place it in the same diretory that PyGL is placed.
 - The diretorys should look like this
 -   /your_dir/PyGL
 -   /your_dir/test.py
